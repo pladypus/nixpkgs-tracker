@@ -7,30 +7,16 @@ import {
   onMount,
   Show,
 } from "solid-js";
+import { DEFAULT_SELECTION, initialBranches, refreshBranches } from "./branches";
+import { checkBranch, errorMessage, getPRHeader, isAbortError } from "./github";
+import { getPrFromURL, parsePrInput, setPrToURL } from "./prInput";
+import {
+  getSavedSelection,
+  getToken,
+  saveSelection,
+  setStoredToken,
+} from "./storage";
 import "./NixpkgsTracker.css";
-
-const ALL_BRANCHES = [
-  "staging-next",
-  "master",
-  "nixos-unstable-small",
-  "nixpkgs-unstable",
-  "nixos-unstable",
-  "nixos-26.05",
-] as const;
-
-const DEFAULT_BRANCHES = ["nixos-unstable"] as const;
-const LS_TOKEN = "nixpkgs_tracker_token";
-const LS_BRANCHES = "nixpkgs_tracker_branches";
-const API_BASE = "https://api.github.com/repos/NixOS/nixpkgs";
-const GH_API_VERSION = "2022-11-28";
-
-type PRHeader = {
-  title: string;
-  closed: boolean;
-  merged: boolean;
-  base: string;
-  mergeCommitSha: string | null;
-};
 
 type BranchStatus = {
   name: string;
@@ -39,126 +25,6 @@ type BranchStatus = {
   error?: boolean;
 };
 
-class HttpError extends Error {
-  status: number;
-
-  constructor(status: number, message: string) {
-    super(message);
-    this.name = "HttpError";
-    this.status = status;
-  }
-}
-
-function canUseDOM(): boolean {
-  return typeof window !== "undefined";
-}
-
-function getToken(): string {
-  if (!canUseDOM()) return "";
-  return localStorage.getItem(LS_TOKEN) ?? "";
-}
-
-function getSavedBranches(): Set<string> {
-  if (!canUseDOM()) return new Set(DEFAULT_BRANCHES);
-  try {
-    const saved = localStorage.getItem(LS_BRANCHES);
-    if (!saved) return new Set(DEFAULT_BRANCHES);
-
-    const parsed = JSON.parse(saved) as unknown;
-    if (!Array.isArray(parsed)) return new Set(DEFAULT_BRANCHES);
-
-    const valid = parsed.filter(
-      (b): b is string =>
-        typeof b === "string" &&
-        (ALL_BRANCHES as readonly string[]).includes(b),
-    );
-    return valid.length > 0 ? new Set(valid) : new Set(DEFAULT_BRANCHES);
-  } catch {
-    return new Set(DEFAULT_BRANCHES);
-  }
-}
-
-function saveBranches(branches: Set<string>) {
-  if (!canUseDOM()) return;
-  localStorage.setItem(LS_BRANCHES, JSON.stringify([...branches]));
-}
-
-function authHeaders(token: string): HeadersInit {
-  const headers: Record<string, string> = {
-    Accept: "application/vnd.github+json",
-    "X-GitHub-Api-Version": GH_API_VERSION,
-  };
-  if (token) {
-    // Works for classic (ghp_) and fine-grained (github_pat_) tokens.
-    headers.Authorization = token.startsWith("github_pat_")
-      ? `Bearer ${token}`
-      : `token ${token}`;
-  }
-  return headers;
-}
-
-async function fetchJSON<T>(
-  url: string,
-  token: string,
-  signal?: AbortSignal,
-): Promise<T> {
-  let response: Response;
-  try {
-    response = await fetch(url, {
-      headers: authHeaders(token),
-      signal,
-    });
-  } catch (err) {
-    if (err instanceof DOMException && err.name === "AbortError") throw err;
-    throw new HttpError(0, "Network error");
-  }
-
-  if (!response.ok) {
-    throw new HttpError(
-      response.status,
-      response.statusText || "Request failed",
-    );
-  }
-
-  return response.json() as Promise<T>;
-}
-
-async function getPRHeader(
-  pr: string,
-  token: string,
-  signal?: AbortSignal,
-): Promise<PRHeader> {
-  const data = await fetchJSON<{
-    title: string;
-    state: string;
-    merged_at: string | null;
-    base: { ref: string };
-    merge_commit_sha: string | null;
-  }>(`${API_BASE}/pulls/${pr}`, token, signal);
-
-  return {
-    title: data.title,
-    closed: data.state === "closed" && data.merged_at === null,
-    merged: data.merged_at !== null,
-    base: data.base.ref,
-    mergeCommitSha: data.merge_commit_sha,
-  };
-}
-
-async function checkBranch(
-  branch: string,
-  commitSha: string,
-  token: string,
-  signal?: AbortSignal,
-): Promise<boolean> {
-  const data = await fetchJSON<{ status: string }>(
-    `${API_BASE}/compare/${encodeURIComponent(branch)}...${encodeURIComponent(commitSha)}`,
-    token,
-    signal,
-  );
-  return data.status === "identical" || data.status === "behind";
-}
-
 function toggleBranch(set: Set<string>, branch: string): Set<string> {
   const next = new Set(set);
   if (next.has(branch)) next.delete(branch);
@@ -166,53 +32,13 @@ function toggleBranch(set: Set<string>, branch: string): Set<string> {
   return next;
 }
 
-function getPrFromURL(): string {
-  if (!canUseDOM()) return "";
-  return new URLSearchParams(window.location.search).get("pr") ?? "";
-}
-
-function setPrToURL(pr: string) {
-  if (!canUseDOM()) return;
-  const url = new URL(window.location.href);
-  if (pr) url.searchParams.set("pr", pr);
-  else url.searchParams.delete("pr");
-  history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
-}
-
-/** Accept bare numbers or GitHub PR URLs. */
-function parsePrInput(raw: string): string | null {
-  const value = raw.trim();
-  if (!value) return null;
-
-  const fromUrl = value.match(/github\.com\/[^/]+\/[^/]+\/pull\/(\d+)/i);
-  if (fromUrl) return fromUrl[1];
-
-  const bare = value.match(/^#?(\d+)$/);
-  if (bare) return bare[1];
-
-  return null;
-}
-
-function errorMessage(err: unknown): string {
-  if (err instanceof HttpError) {
-    if (err.status === 403 || err.status === 429) {
-      return "API rate limit exceeded — set a GitHub token to increase the limit";
-    }
-    if (err.status === 404) return "PR not found";
-    if (err.status === 401) return "Invalid GitHub token";
-    if (err.status === 0) return "Network error — check your connection";
-    return `Request failed (HTTP ${err.status})`;
-  }
-  if (err instanceof DOMException && err.name === "AbortError") {
-    return "";
-  }
-  return "Request failed — check the PR number or network";
-}
-
 export function NixpkgsTracker() {
   const [prInput, setPrInput] = createSignal(getPrFromURL());
   const [selectedBranches, setSelectedBranches] = createSignal(
-    getSavedBranches(),
+    new Set(getSavedSelection() ?? DEFAULT_SELECTION),
+  );
+  const [availableBranches, setAvailableBranches] = createSignal(
+    initialBranches(),
   );
   const [token, setToken] = createSignal(getToken());
   const [showToken, setShowToken] = createSignal(false);
@@ -232,6 +58,7 @@ export function NixpkgsTracker() {
   let resultCardRef: HTMLDivElement | undefined;
   let activeController: AbortController | null = null;
   let copyResetTimer: ReturnType<typeof setTimeout> | undefined;
+  let branchesReady: Promise<string[]> | null = null;
 
   const isRelease = createMemo(() => prBase().startsWith("release-"));
 
@@ -247,20 +74,29 @@ export function NixpkgsTracker() {
   function handleToggleBranch(branch: string) {
     setSelectedBranches((prev) => {
       const next = toggleBranch(prev, branch);
-      saveBranches(next);
+      saveSelection(next);
       return next;
     });
   }
 
   function saveToken(t: string) {
     const next = t.trim();
-    localStorage.setItem(LS_TOKEN, next);
+    setStoredToken(next);
     setToken(next);
   }
 
   function clearToken() {
-    localStorage.removeItem(LS_TOKEN);
+    setStoredToken("");
     setToken("");
+  }
+
+  /** Starts the branch-list refresh once; later calls share the same promise. */
+  function ensureBranches(): Promise<string[]> {
+    branchesReady ??= refreshBranches(token()).then((list) => {
+      setAvailableBranches(list);
+      return list;
+    });
+    return branchesReady;
   }
 
   async function handleCheck() {
@@ -312,9 +148,14 @@ export function NixpkgsTracker() {
         return;
       }
 
-      const branches = header.base.startsWith("release-")
-        ? [header.base]
-        : ALL_BRANCHES.filter((b) => selectedBranches().has(b));
+      let branches: string[];
+      if (header.base.startsWith("release-")) {
+        branches = [header.base];
+      } else {
+        const available = await ensureBranches();
+        if (controller.signal.aborted) return;
+        branches = available.filter((b) => selectedBranches().has(b));
+      }
 
       if (branches.length === 0) {
         setError("Select at least one branch to check");
@@ -342,7 +183,7 @@ export function NixpkgsTracker() {
               ),
             );
           } catch (err) {
-            if (err instanceof DOMException && err.name === "AbortError") return;
+            if (isAbortError(err)) return;
             if (controller.signal.aborted) return;
             setBranchStatuses((prev) =>
               prev.map((s) =>
@@ -355,7 +196,7 @@ export function NixpkgsTracker() {
         }),
       );
     } catch (err) {
-      if (err instanceof DOMException && err.name === "AbortError") return;
+      if (isAbortError(err)) return;
       const message = errorMessage(err);
       if (message) setError(message);
     } finally {
@@ -408,8 +249,7 @@ export function NixpkgsTracker() {
   }
 
   onMount(() => {
-    setSelectedBranches(getSavedBranches());
-    setToken(getToken());
+    void ensureBranches();
     if (parsePrInput(prInput())) void handleCheck();
   });
 
@@ -433,7 +273,7 @@ export function NixpkgsTracker() {
               role="group"
               aria-labelledby="branch-label"
             >
-              <For each={[...ALL_BRANCHES]}>
+              <For each={availableBranches()}>
                 {(b) => (
                   <label class="branch-checkbox">
                     <input
