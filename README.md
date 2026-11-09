@@ -24,6 +24,7 @@ nix build github:ocfox/nixpkgs-tracker
 - [x] GitHub token for a higher request limit (optional, stored in localStorage)
 - [x] Check multiple branches at the same time
 - [x] Copy result card as an image
+- [x] Dark mode (follows the system setting)
 
 <img width="3696" height="1917" alt="nixpkgs-tracker" src="https://github.com/user-attachments/assets/fb0d18d6-5482-4ec4-8f85-0a00831e43f5" />
 

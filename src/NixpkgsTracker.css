@@ -10,6 +10,7 @@
 
 /* --- color scheme --- */
 :root {
+  color-scheme: light dark;
   --bg: #fff;
   --text: #1a1a2e;
   --muted: #6b7280;
@@ -21,6 +22,28 @@
   --amber: #d97706;
   --blue: #0969da;
   --blue-hover: #0550ae;
+  --on-blue: #fff;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0f0f14;
+    --text: #e5e7eb;
+    --muted: #9ca3af;
+    --border: #374151;
+    --card-bg: #1a1a24;
+    --input-bg: #1e1e2a;
+    --green: #34d399;
+    --red: #f87171;
+    --amber: #fbbf24;
+    --blue: #4493f8;
+    --blue-hover: #6cb6ff;
+    --on-blue: #0f0f14;
+  }
+}
+
+body {
+  background: var(--bg);
 }
 
 /* --- header --- */
@@ -166,7 +189,7 @@
 }
 
 .btn-primary {
-  color: #fff;
+  color: var(--on-blue);
   background: var(--blue);
   border-color: var(--blue);
 }
@@ -230,7 +253,7 @@
   border-radius: 999px;
   border: 1px solid var(--border);
   color: var(--muted);
-  background: #fff;
+  background: var(--input-bg);
 }
 
 .badge-merged {
@@ -308,7 +331,7 @@
   border: 1px solid var(--green);
   border-radius: 2px;
   position: relative;
-  background: #fff;
+  background: var(--input-bg);
 }
 
 .status-item.merged .status-icon:checked::after {
@@ -422,18 +445,18 @@
   padding: 12px;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   font-size: 13px;
-  background: color-mix(in srgb, var(--bg, #fff) 92%, transparent);
+  background: color-mix(in srgb, var(--bg) 92%, transparent);
   backdrop-filter: blur(6px);
-  border-top: 1px solid var(--border, #d1d5db);
+  border-top: 1px solid var(--border);
 }
 
 .app-footer a {
   text-decoration: none;
-  color: var(--muted, #6b7280);
+  color: var(--muted);
 }
 
 .app-footer a:hover {
-  color: var(--blue, #0969da);
+  color: var(--blue);
   text-decoration: underline;
 }
 

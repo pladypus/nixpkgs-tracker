@@ -221,7 +221,8 @@ export function NixpkgsTracker() {
       const dataUrl = await toPng(resultCardRef, {
         cacheBust: true,
         pixelRatio: 2,
-        backgroundColor: "#ffffff",
+        // Match the current theme so the image looks like the card on screen.
+        backgroundColor: getComputedStyle(resultCardRef).backgroundColor,
       });
       const res = await fetch(dataUrl);
       const blob = await res.blob();
