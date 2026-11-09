@@ -25,10 +25,14 @@
           pkgs,
           ...
         }:
+        let
+          # Matches the pnpm-lock.yaml format; bump together with the lockfile.
+          pnpm = pkgs.pnpm_10;
+        in
         {
           devShells.default =
             let
-              inherit (pkgs) mkShell nodejs pnpm;
+              inherit (pkgs) mkShell nodejs;
             in
             mkShell {
               packages = [
@@ -49,14 +53,14 @@
               src = ./.;
 
               pnpmDeps = pkgs.fetchPnpmDeps {
-                inherit pname version src;
-                fetcherVersion = 3;
-                hash = "sha256-gqnsqZ8O/MhqrnynzECRk5cbIkvbRQeD9wRPmGnIDLk=";
+                inherit pname version src pnpm;
+                fetcherVersion = 5;
+                hash = "sha256-++fI9GKg8yFEFwCgGSgTLITt19KcH7X9wf4/UeMzXBI=";
               };
 
-              nativeBuildInputs = with pkgs; [
-                nodejs
-                pnpmConfigHook
+              nativeBuildInputs = [
+                pkgs.nodejs
+                pkgs.pnpmConfigHook
                 pnpm
               ];
 
