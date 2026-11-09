@@ -1,0 +1,23 @@
+name: check
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v31
+
+      # Fails if pnpm-lock.yaml changed without updating pnpmDeps.hash in flake.nix.
+      - name: nix build
+        run: nix build -L
+
+      - name: typecheck
+        run: nix develop --command bash -c "pnpm install --frozen-lockfile && pnpm typecheck"
